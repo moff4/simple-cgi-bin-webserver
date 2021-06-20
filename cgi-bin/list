@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+
+import cgi
+import sqlite3
+from urllib.parse import parse_qs
+from typing import List, Tuple, Optional
+
+print('Content-Type: text/html')
+print('')
+
+template = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>List</title>
+</head>
+<body>
+  <h1>Users</h1>
+  <p>{users}</p>
+  <form method="POST" action="/cgi-bin/list">
+    <label>Age:</label>
+    <input type="text" name="age"/>
+    <label>Name:</label>
+    <input type="text" name="name"/>
+    <input type="submit">
+  </form>
+</body>
+</html>
+"""
+
+
+def get_rows(age: Optional[str], name: Optional[str]) -> List[Tuple[int, str, int]]:
+    with sqlite3.connect('db.sqlite3') as connection:
+        cursor = connection.cursor()
+
+        params = []  # type: List[str]
+        filters = []  # type: List[str]
+
+        # check if age was passed and is not empty
+        if age:
+            filters.append('age == ? ')
+            params.append(age)
+
+        # check if name was passed and is not empty
+        if name:
+            filters.append('name == ? ')
+            params.append(name)
+
+        # build query with filters
+        query = 'select * from firstapp_contact'
+        if filters:
+            query += ' WHERE ' + ' AND '.join(filters)
+
+        rows = list(cursor.execute(query, params))  # type: List[Tuple[int, str, int]]
+
+        # release resources
+        cursor.close()
+
+        return rows
+
+
+def handle_post() -> None:
+    x = cgi.FieldStorage()
+    params = parse_qs(x.qs_on_post)
+    name = params['name'][0] if 'name' in params else None
+    age = params['age'][0] if 'age' in params else None
+    rows = get_rows(age=age, name=name)
+    print(
+        template.format(
+            users='</p><p>'.join(
+                [
+                    'id={}, name={}, age={};'.format(*row)
+                    for row in rows
+                ]
+            )
+        )
+    )
+
+
+def handle_request() -> None:
+    handle_post()
+
+
+handle_request()
