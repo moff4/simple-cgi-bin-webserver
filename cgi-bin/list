@@ -2,8 +2,7 @@
 
 import cgi
 import sqlite3
-from urllib.parse import parse_qs
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any, Dict
 
 print('Content-Type: text/html')
 print('')
@@ -23,54 +22,92 @@ template = """
     <input type="text" name="age"/>
     <label>Name:</label>
     <input type="text" name="name"/>
+
+    <br>
+    <input type="checkbox" id="db1" name="db1" checked>
+    <label for="db1">DB 1</label>
+
+    <br>
+    <input type="checkbox" id="db2" name="db2" checked>
+    <label for="db2">DB 2</label>
+
+    <br>
+    <input type="checkbox" id="db3" name="db3" checked>
+    <label for="db3">DB 3</label>
+
+    <br>
     <input type="submit">
   </form>
 </body>
 </html>
 """
 
+CONNECTIONS = {
+    'db1': sqlite3.connect('db.sqlite3'),
+    'db2': sqlite3.connect('db2.sqlite3'),
+    'db3': sqlite3.connect('db3.sqlite3'),
+}
 
-def get_rows(age: Optional[str], name: Optional[str]) -> List[Tuple[int, str, int]]:
-    with sqlite3.connect('db.sqlite3') as connection:
-        cursor = connection.cursor()
 
-        params = []  # type: List[str]
-        filters = []  # type: List[str]
+def _get_rows(connection: Any, age: Optional[str], name: Optional[str]) -> List[Tuple[int, str, int]]:
+    #
+    cursor = connection.cursor()
 
-        # check if age was passed and is not empty
-        if age:
-            filters.append('age == ? ')
-            params.append(age)
+    params = []  # type: List[str]
+    filters = []  # type: List[str]
 
-        # check if name was passed and is not empty
-        if name:
-            filters.append('name == ? ')
-            params.append(name)
+    # check if age was passed and is not empty
+    if age:
+        filters.append('age == ? ')
+        params.append(age)
 
-        # build query with filters
-        query = 'select * from firstapp_contact'
-        if filters:
-            query += ' WHERE ' + ' AND '.join(filters)
+    # check if name was passed and is not empty
+    if name:
+        filters.append('name == ? ')
+        params.append(name)
 
-        rows = list(cursor.execute(query, params))  # type: List[Tuple[int, str, int]]
+    # build query with filters
+    query = 'select * from firstapp_contact'
+    if filters:
+        query += ' WHERE ' + ' AND '.join(filters)
 
-        # release resources
-        cursor.close()
+    rows = list(cursor.execute(query, params))  # type: List[Tuple[int, str, int]]
 
-        return rows
+    # release resources
+    cursor.close()
+
+    return rows
+
+
+def get_rows(params: Dict[str, str], age: Optional[str], name: Optional[str]) -> List[Tuple[int, str, int, str]]:
+    res = []
+    for key in params:
+        if connection := CONNECTIONS.get(key):
+            with connection:
+                res.extend(
+                    [
+                        (*i, key)
+                        for i in _get_rows(connection=connection, age=age, name=name)
+                    ]
+                )
+    return res
 
 
 def handle_post() -> None:
     x = cgi.FieldStorage()
-    params = parse_qs(x.qs_on_post)
-    name = params['name'][0] if 'name' in params else None
-    age = params['age'][0] if 'age' in params else None
-    rows = get_rows(age=age, name=name)
+    params = {
+        i.name: i.value
+        for i in x.list
+    }
+
+    name = params['name'] if 'name' in params else None
+    age = params['age'] if 'age' in params else None
+    rows = get_rows(age=age, name=name, params=params)
     print(
         template.format(
-            users='</p><p>'.join(
+            users='</p>\n<p>'.join(
                 [
-                    'id={}, name={}, age={};'.format(*row)
+                    'id={}, name={}, age={}; DB={}'.format(*row)
                     for row in rows
                 ]
             )
