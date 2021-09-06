@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import cgi
-import sqlite3
-from typing import List, Tuple, Optional, Any, Dict
+from typing import List, Tuple, Optional, Any
+
+import psycopg2
+
 
 print('Content-Type: text/html')
 print('')
@@ -24,73 +26,35 @@ template = """
     <input type="text" name="name"/>
 
     <br>
-    <input type="checkbox" id="db1" name="db1" checked>
-    <label for="db1">DB 1</label>
-
-    <br>
-    <input type="checkbox" id="db2" name="db2" checked>
-    <label for="db2">DB 2</label>
-
-    <br>
-    <input type="checkbox" id="db3" name="db3" checked>
-    <label for="db3">DB 3</label>
-
-    <br>
     <input type="submit">
   </form>
 </body>
 </html>
 """
 
-CONNECTIONS = {
-    'db1': sqlite3.connect('db.sqlite3'),
-    'db2': sqlite3.connect('db2.sqlite3'),
-    'db3': sqlite3.connect('db3.sqlite3'),
-}
+CONNECTION = psycopg2.connect("dbname=postgres user=postgres password=postgres host=localhost port=5432"),
 
 
-def _get_rows(connection: Any, age: Optional[str], name: Optional[str]) -> List[Tuple[int, str, int]]:
-    #
+def _get_rows(connection: Any, age: Optional[str], name: Optional[str]) -> List[Tuple[int]]:
     cursor = connection.cursor()
 
-    params = []  # type: List[str]
-    filters = []  # type: List[str]
+    if not age or not name:
+        raise ValueError('name or age not passed')
 
-    # check if age was passed and is not empty
-    if age:
-        filters.append('age == ? ')
-        params.append(age)
+    cursor.callproc('INSERT_NEW_ROW', [name, age])
 
-    # check if name was passed and is not empty
-    if name:
-        filters.append('name == ? ')
-        params.append(name)
-
-    # build query with filters
-    query = 'select * from firstapp_contact'
-    if filters:
-        query += ' WHERE ' + ' AND '.join(filters)
-
-    rows = list(cursor.execute(query, params))  # type: List[Tuple[int, str, int]]
-
-    # release resources
+    # "commit" and "start transaction" cannot be used in stored procedures because of
+    # https://stackoverflow.com/questions/59159091/invalid-transaction-termination#59159476
+    connection.commit()
+    result = cursor.fetchall()
+    rows = list(result)
     cursor.close()
-
     return rows
 
 
-def get_rows(params: Dict[str, str], age: Optional[str], name: Optional[str]) -> List[Tuple[int, str, int, str]]:
-    res = []
-    for key in params:
-        if connection := CONNECTIONS.get(key):
-            with connection:
-                res.extend(
-                    [
-                        (*i, key)
-                        for i in _get_rows(connection=connection, age=age, name=name)
-                    ]
-                )
-    return res
+def get_rows(age: Optional[str], name: Optional[str]) -> List[Tuple[int]]:
+    with CONNECTION:
+        return _get_rows(connection=CONNECTION, age=age, name=name)
 
 
 def handle_post() -> None:
@@ -99,15 +63,14 @@ def handle_post() -> None:
         i.name: i.value
         for i in x.list
     }
-
     name = params['name'] if 'name' in params else None
     age = params['age'] if 'age' in params else None
-    rows = get_rows(age=age, name=name, params=params)
+    rows = get_rows(age=age, name=name)
     print(
         template.format(
             users='</p>\n<p>'.join(
                 [
-                    'id={}, name={}, age={}; DB={}'.format(*row)
+                    'Добаввлен {} ({} y.o.) # {}'.format(name, age, row[0])
                     for row in rows
                 ]
             )
