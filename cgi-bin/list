@@ -32,6 +32,29 @@ template = """
 </html>
 """
 
+"""
+RAW SQL PROCEDURE CODE:
+
+CREATE OR REPLACE FUNCTION INSERT_NEW_ROW (name text, age int)
+RETURNS int as
+$$
+DECLARE
+    result int;
+BEGIN
+	 insert into public.table1
+	 (name, age) values (name, age);
+	 select count(*) into result from public.table1 t
+     where t.name = $1 and t.age = $2;
+	 return result;
+end
+$$
+LANGUAGE plpgsql;
+
+USAGE:
+select INSERT_NEW_ROW('VOVA', 33);
+
+    """
+
 CONNECTION = psycopg2.connect("dbname=postgres user=postgres password=postgres host=localhost port=5432"),
 
 
